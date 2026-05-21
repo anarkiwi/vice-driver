@@ -1,0 +1,106 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vice-driver"
+version = "0.1.0"
+description = "Python automation framework for driving asid-vice (a binmon-extended C64 emulator) — protocol client, key matrix + chord typing, screen scrape, container management, code-coverage harness."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.10"
+authors = [
+    { name = "anarkiwi" },
+]
+keywords = [
+    "c64",
+    "commodore-64",
+    "vice",
+    "asid-vice",
+    "emulator",
+    "automation",
+    "binary-monitor",
+    "coverage",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Testing",
+    "Topic :: System :: Emulators",
+]
+# No runtime dependencies beyond the Python standard library — the
+# asid-vice container is a separate runtime concern that the user
+# spins up via Docker.
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.0",
+    "ruff>=0.4",
+    "black>=24.0",
+    "pyright>=1.1.350",
+]
+
+[project.urls]
+Homepage = "https://github.com/anarkiwi/vice-driver"
+Issues = "https://github.com/anarkiwi/vice-driver/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["vice_driver*"]
+exclude = ["tests*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+# Coverage gate: every unit-test run must hit at least 85% of vice_driver/.
+# --cov-config keeps the configuration in this file (under [tool.coverage.*])
+# so editor-driven runs and CI see the same thresholds.
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--cov=vice_driver",
+    "--cov-report=term-missing",
+    "--cov-fail-under=85",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["vice_driver"]
+# Exclude __init__'s public re-exports from coverage gating; nothing
+# meaningful to test in import-only modules.
+omit = ["vice_driver/__init__.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+skip_covered = false
+show_missing = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B"]
+ignore = [
+    "E501",  # line length — covered by ruff format
+    "E741",  # ambiguous variable name (we use single-letter regs etc.)
+    "B008",  # function call in default argument — used in CLI parsers
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
