@@ -6,6 +6,12 @@ and the default CMD already enables the binary monitor on 0.0.0.0:6502
 inside the container, so we only need to publish the port and (optionally)
 mount disk images and pass `-autostart`.
 
+Set ``ViceContainer.entrypoint`` when running against an image whose
+ENTRYPOINT is not ``x64sc`` (e.g. ``anarkiwi/headlessvice``, whose
+default entrypoint is ``/bin/bash``). The string is passed through
+``docker run --entrypoint``; the ``x64sc_args()`` flags then become
+the new entrypoint's argv.
+
 This module deliberately uses the docker CLI rather than docker-py so the
 harness has no Python dependencies beyond stdlib.
 """
@@ -43,6 +49,9 @@ class DiskMount:
 @dataclass
 class ViceContainer:
     image: str = "asid-vice:latest"
+    # ``docker run --entrypoint`` override. ``None`` => use the image's
+    # own ENTRYPOINT. Set to ``"x64sc"`` to drive ``anarkiwi/headlessvice``.
+    entrypoint: Optional[str] = None
     binmon_port: int = 6502
     container_binmon_port: int = 6502
     autostart: Optional[str] = None  # container-side path of disk/PRG to autostart
@@ -144,6 +153,8 @@ class ViceContainer:
             "-p",
             f"{self.binmon_port}:{self.container_binmon_port}",
         ]
+        if self.entrypoint is not None:
+            cmd += ["--entrypoint", self.entrypoint]
         for m in self.mounts:
             cmd += m.docker_arg()
         cmd += [self.image]

@@ -159,6 +159,32 @@ def test_start_invokes_docker_run_with_expected_args(mock_docker: dict[str, list
     # x64sc_args are appended after the image name.
     assert "-autostart" in run_cmd
     assert "/work/disk.d64" in run_cmd
+    # No --entrypoint override by default.
+    assert "--entrypoint" not in run_cmd
+
+
+def test_start_passes_entrypoint_override(mock_docker: dict[str, list]) -> None:
+    c = ViceContainer(
+        image="anarkiwi/headlessvice:latest",
+        entrypoint="x64sc",
+    )
+    c.start()
+    [run_cmd] = mock_docker["calls"]
+    # --entrypoint must precede the image so docker treats it as a
+    # ``docker run`` flag rather than passing it as container argv.
+    image_idx = run_cmd.index("anarkiwi/headlessvice:latest")
+    ep_idx = run_cmd.index("--entrypoint")
+    assert ep_idx < image_idx
+    assert run_cmd[ep_idx + 1] == "x64sc"
+    # The trailing flags must still be the x64sc_args, not consumed by the
+    # entrypoint pair.
+    assert "-binarymonitor" in run_cmd[image_idx + 1 :]
+
+
+def test_start_omits_entrypoint_when_none(mock_docker: dict[str, list]) -> None:
+    ViceContainer().start()
+    [run_cmd] = mock_docker["calls"]
+    assert "--entrypoint" not in run_cmd
 
 
 def test_start_passes_disk_mounts(mock_docker: dict[str, list]) -> None:
