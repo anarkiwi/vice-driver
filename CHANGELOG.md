@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses semantic-versioning-ish tags but the v0.x line is
 still pre-stable.
 
+## [0.2.0] — entrypoint override
+
+### Added
+
+- `ViceContainer.entrypoint` field. When set, passed through to
+  `docker run --entrypoint`. Enables driving images whose default
+  `ENTRYPOINT` is not `x64sc` (e.g. `anarkiwi/headlessvice`, whose
+  default entrypoint is `/bin/bash`).
+
 ## [0.1.0] — initial release
 
 ### Added
