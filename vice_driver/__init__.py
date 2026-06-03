@@ -9,6 +9,8 @@ Public surface:
     ASCII → chord conversion.
   * :mod:`vice_driver.screen` — SCREEN_GET response parsing + screencode →
     ASCII rendering.
+  * :mod:`vice_driver.display` — DISPLAY_GET / PALETTE_GET parsing +
+    true-colour framebuffer extraction and a stdlib-only PNG writer.
   * :mod:`vice_driver.vice_docker` — one-shot container management for
     the asid-vice Docker image.
   * :mod:`vice_driver.coverage` — per-action code-coverage harness using
@@ -22,6 +24,12 @@ See ``README.md`` for installation, container setup, and a worked
 
 from .binmon import OPCODE, BinMon, BinmonError
 from .coverage import ActionCoverage, Coverage
+from .display import (
+    DisplaySnapshot,
+    parse_display_response,
+    parse_palette_response,
+    write_png,
+)
 from .expect import Expect, ExpectPredicate, verify
 from .keys import KEY, canonical_name, chord_to_keys, lookup, text_to_chords
 from .screen import ScreenSnapshot, parse_screen_response, screencode_to_ascii
@@ -33,6 +41,7 @@ __all__ = [
     "BinmonError",
     "Coverage",
     "DiskMount",
+    "DisplaySnapshot",
     "Expect",
     "ExpectPredicate",
     "KEY",
@@ -43,10 +52,13 @@ __all__ = [
     "canonical_name",
     "chord_to_keys",
     "lookup",
+    "parse_display_response",
+    "parse_palette_response",
     "parse_screen_response",
     "screencode_to_ascii",
     "text_to_chords",
     "verify",
+    "write_png",
 ]
 
 __version__ = "0.1.0"
