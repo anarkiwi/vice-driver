@@ -29,6 +29,10 @@ over a single TCP socket per connection.
   that read the matrix directly.
 - **`vice_driver.screen`** — SCREEN_GET response parser + screencode →
   PETSCII → ASCII rendering with `find_text()`.
+- **`vice_driver.display`** — DISPLAY_GET / PALETTE_GET parser + true-colour
+  framebuffer extraction (`DisplaySnapshot.to_rgb()` / `.save_png()`) with a
+  stdlib-only PNG writer. Grabs VICE's own rendered display (border, sprites,
+  raster effects, any video mode), not just text-mode screen codes.
 - **`vice_driver.vice_docker`** — `ViceContainer` context manager that
   spins up a one-shot asid-vice Docker container with the right binmon
   binding, sound dump, SID configuration, and disk mounts.

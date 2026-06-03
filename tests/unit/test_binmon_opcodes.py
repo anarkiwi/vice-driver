@@ -470,6 +470,29 @@ def test_screen_get_returns_body_bytes() -> None:
     assert out == body
 
 
+# ---- display_get / palette_get ---------------------------------------------
+
+
+def test_display_get_returns_body_and_sends_request() -> None:
+    bm, s = _make_bm()
+    body = bytes(range(64))
+    s.recv_queue.extend(_resp_bytes(req_id=1, opcode=OPCODE.DISPLAY_GET, body=body))
+    out = bm.display_get()
+    assert out == body
+    _, _, body_len, _, opcode = _parse_header(bytes(s.sent))
+    assert opcode == OPCODE.DISPLAY_GET
+    assert bytes(s.sent)[11:] == bytes([1, 0])  # use_vic=1, format=indexed
+
+
+def test_palette_get_returns_body() -> None:
+    bm, s = _make_bm()
+    body = bytes([2, 0]) + bytes([3, 1, 2, 3]) + bytes([3, 4, 5, 6])
+    s.recv_queue.extend(_resp_bytes(req_id=1, opcode=OPCODE.PALETTE_GET, body=body))
+    out = bm.palette_get(use_vic=False)
+    assert out == body
+    assert bytes(s.sent)[11:] == bytes([0])  # use_vic=0
+
+
 # ---- close + context manager -----------------------------------------------
 
 

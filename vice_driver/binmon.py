@@ -749,6 +749,25 @@ class BinMon:
         resp = self.call(OPCODE.SCREEN_GET)
         return resp.body
 
+    def display_get(self, use_vic: bool = True) -> bytes:
+        """Return the raw DISPLAY_GET response body: VICE's rendered framebuffer.
+
+        Unlike screen_get (text-mode screen codes), this is the full
+        indexed bitmap VICE actually draws — border, sprites, raster
+        effects, any video mode. Parse with
+        ``vice_driver.display.parse_display_response`` and combine with
+        palette_get() for a true-colour grab. ``use_vic`` selects the
+        VIC-II (vs VDC) on machines that have both; ignored on the C64."""
+        resp = self.call(OPCODE.DISPLAY_GET, bytes([1 if use_vic else 0, 0x00]))
+        return resp.body
+
+    def palette_get(self, use_vic: bool = True) -> bytes:
+        """Return the raw PALETTE_GET response body: the active VICE palette.
+
+        Parse with ``vice_driver.display.parse_palette_response``."""
+        resp = self.call(OPCODE.PALETTE_GET, bytes([1 if use_vic else 0]))
+        return resp.body
+
     # ---- checkpoints (CHECKPOINT_*, opcodes 0x11..0x15) ----------------
 
     @staticmethod

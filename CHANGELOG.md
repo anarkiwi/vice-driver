@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses semantic-versioning-ish tags but the v0.x line is
 still pre-stable.
 
+## [Unreleased]
+
+### Added
+
+- `vice_driver.display` — DISPLAY_GET / PALETTE_GET parsing and true-colour
+  framebuffer extraction. `parse_display_response` / `parse_palette_response`
+  decode the responses; `DisplaySnapshot.to_rgb()` / `.save_png()` render the
+  frame (optionally cropping the border); `write_png()` is a standalone
+  stdlib-only PNG encoder. Captures VICE's own rendered display — border,
+  sprites, raster/FLD effects, any video mode — unlike the text-only
+  SCREEN_GET path, and keeps the package dependency-free (uses `zlib`).
+- `BinMon.display_get()` / `BinMon.palette_get()` — opcode wrappers for
+  0x84 / 0x91.
+
 ## [0.2.0] — entrypoint override
 
 ### Added
