@@ -70,6 +70,7 @@ class OPCODE:
     KEYMATRIX_GET = 0x76
     SCREEN_GET = 0x77
     DRIVE_ATTACH = 0x78
+    VIDEO_RECORD = 0x79
 
     # Unsolicited events
     JAM = 0x61
@@ -698,6 +699,39 @@ class BinMon:
         re-attach no writer owns the file, so a `shutil.copy()` taken
         in that window is guaranteed safe."""
         self.attach_drive(path, unit=unit, drive=drive)
+
+    # ---- video recording (asid-vice 0x79) ------------------------------
+    #
+    # Drives VICE's native screenshot/movie recorder via the in-tree ZMBV
+    # gfxoutput driver: lossless ZMBV video inside an AVI container. Depends
+    # only on zlib (already linked), so no external ffmpeg binary is needed.
+    #
+    # Body layout (see monitor_binary_process_video_record):
+    #     u8  action     0 = stop (finalize/close file), 1 = start
+    #     u8  path_len   (start only) length of path, 1..255
+    #     u8  path[]     (start only) ASCII host-side path, NOT NUL-terminated
+    #
+    # NOTE: recording forces warp mode OFF for the duration (VICE skips
+    # encoding while warping), and video_stop() restores the prior warp
+    # state. So a warp-booted harness should: pause/settle, video_record(),
+    # let the emulator run in real time for the desired clip length, then
+    # video_stop() — which re-enables warp.
+
+    def video_record(self, path: str) -> None:
+        """Start recording the emulated screen to `path` (an AVI file, host
+        side / inside the container). Turns warp mode off so frames are
+        actually encoded; call video_stop() to finalize the file and
+        restore the previous warp state. Path should end in .avi."""
+        path_b = path.encode("ascii")
+        if not path_b or len(path_b) > 255:
+            raise BinmonError("path must be 1..255 bytes")
+        body = bytes([1, len(path_b)]) + path_b
+        self.call(OPCODE.VIDEO_RECORD, body)
+
+    def video_stop(self) -> None:
+        """Stop recording: flush and close the AVI file and restore the warp
+        state that was active before video_record() was called."""
+        self.call(OPCODE.VIDEO_RECORD, bytes([0]))
 
     # ---- keymatrix (asid-vice) -----------------------------------------
 

@@ -6,6 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses semantic-versioning-ish tags but the v0.x line is
 still pre-stable.
 
+## [0.3.1] — video recording
+
+### Added
+
+- `BinMon.video_record(path)` / `BinMon.video_stop()` — opcode 0x79
+  wrappers driving VICE's native ZMBV movie recorder: lossless video
+  inside an AVI container, no external ffmpeg dependency. Recording
+  forces warp mode off (VICE skips encoding while warping);
+  `video_stop()` finalizes the file and restores the prior warp state.
+
 ## [0.3.0] — display framebuffer grab
 
 ### Added

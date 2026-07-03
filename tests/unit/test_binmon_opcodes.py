@@ -493,6 +493,43 @@ def test_palette_get_returns_body() -> None:
     assert bytes(s.sent)[11:] == bytes([0])  # use_vic=0
 
 
+# ---- video_record / video_stop ----------------------------------------------
+
+
+def test_video_record_packs_start_flag_and_path() -> None:
+    bm, s = _make_bm()
+    s.recv_queue.extend(_resp_bytes(req_id=1, opcode=OPCODE.VIDEO_RECORD))
+    bm.video_record("/renders/out.avi")
+    body = bytes(s.sent[11:])
+    assert body[0] == 1  # action=start
+    assert body[1] == len(b"/renders/out.avi")
+    assert body[2:] == b"/renders/out.avi"
+    _, _, _, _, opcode = _parse_header(bytes(s.sent[:11]))
+    assert opcode == OPCODE.VIDEO_RECORD
+
+
+def test_video_record_rejects_empty_path() -> None:
+    bm, _ = _make_bm()
+    with pytest.raises(BinmonError, match="1..255 bytes"):
+        bm.video_record("")
+
+
+def test_video_record_rejects_long_path() -> None:
+    bm, _ = _make_bm()
+    with pytest.raises(BinmonError, match="1..255 bytes"):
+        bm.video_record("/" + "x" * 300)
+
+
+def test_video_stop_sends_stop_flag_only() -> None:
+    bm, s = _make_bm()
+    s.recv_queue.extend(_resp_bytes(req_id=1, opcode=OPCODE.VIDEO_RECORD))
+    bm.video_stop()
+    body = bytes(s.sent[11:])
+    assert body == bytes([0])
+    _, _, _, _, opcode = _parse_header(bytes(s.sent[:11]))
+    assert opcode == OPCODE.VIDEO_RECORD
+
+
 # ---- close + context manager -----------------------------------------------
 
 
