@@ -211,6 +211,17 @@ def test_mem_get_rejects_short_response() -> None:
         bm.mem_get(0x0, 0x0)
 
 
+def test_condition_set_packs_checknum_and_expr() -> None:
+    bm, s = _make_bm()
+    s.recv_queue.extend(_resp_bytes(req_id=1, opcode=OPCODE.CONDITION_SET))
+    bm.condition_set(7, "@(0x09c0) == 0x90")
+    req_body = bytes(s.sent[11:])
+    checknum, length = struct.unpack("<IB", req_body[:5])
+    assert checknum == 7
+    assert length == len("@(0x09c0) == 0x90")
+    assert req_body[5:] == b"@(0x09c0) == 0x90"
+
+
 def test_mem_set_skips_empty_data() -> None:
     bm, s = _make_bm()
     bm.mem_set(0x1000, b"")

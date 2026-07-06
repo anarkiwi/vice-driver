@@ -513,15 +513,34 @@ class BinMon:
             auto_resume=False,
         )
 
-    def run_until_pc(self, target: int, timeout: float = 5.0) -> None:
+    def condition_set(self, checknum: int, expr: str | bytes) -> None:
+        """Attach a VICE monitor condition to checkpoint `checknum` (CONDITION_SET
+        $22). The checkpoint then only stops/reports when `expr` evaluates true --
+        `expr` uses the same grammar as the text monitor's `condition` command
+        (registers by name, numbers as `$hh`/`0xhh`, memory as `@(addr)`), e.g.
+        ``@(0x09c0) == 0x90``. This is what lets a resume stop at EXACTLY a target
+        memory value instead of at every checkpoint hit."""
+        if isinstance(expr, str):
+            expr = expr.encode("ascii")
+        body = struct.pack("<IB", checknum & 0xFFFFFFFF, len(expr)) + expr
+        self.call(OPCODE.CONDITION_SET, body)
+
+    def run_until_pc(self, target: int, timeout: float = 5.0, condition: str | None = None) -> None:
         """Resume CPU until execution reaches `target`. Implementation: set a
-        temporary stop-on-hit checkpoint at target, EXIT, wait for the
-        unsolicited CHECKPOINT_INFO with hit=True, then delete the checkpoint.
+        stop-on-hit checkpoint at target, EXIT, wait for the unsolicited
+        CHECKPOINT_INFO with hit=True, then delete the checkpoint.
 
         Use after registers_set(PC=...) to "run one routine to completion".
         Caller is responsible for arranging that PC will actually reach
         target (typically: push fake return address, set PC to routine,
         target = the dummy return-to-self instruction).
+
+        With `condition` (a VICE condition expression), the checkpoint stops
+        ONLY when the condition holds at `target` -- so the CPU runs through
+        every intermediate hit at full speed and halts exactly when the
+        condition is met (e.g. an angle register reaching its target notch).
+        The caller must guarantee the condition will eventually hold, else this
+        raises BinmonError on timeout.
 
         Always installs the checkpoint without auto-resuming, so behaviour
         is identical whether or not the caller is inside `bm.halted()`.
@@ -531,7 +550,10 @@ class BinMon:
         # Fast-path: PC already at target (e.g. caller's previous
         # run_until_pc() left us here). Avoids installing a checkpoint
         # and waiting on an event that will never fire because CPU never
-        # leaves target.
+        # leaves target. Skipped when a condition is set: being AT target
+        # does not imply the condition holds, so we must install and watch.
+        if condition is not None:
+            return self._run_until_pc_cond(target, condition, timeout)
         try:
             regs_now = self._call_inner(
                 OPCODE.REGISTERS_GET,
@@ -616,6 +638,80 @@ class BinMon:
             # removed it (temporary=True), but safer to be explicit.
             # Use call_keep_halted so we don't unintentionally resume the
             # CPU after a successful halt at target.
+            try:
+                self._call_inner(
+                    OPCODE.CHECKPOINT_DELETE,
+                    struct.pack("<I", cp.checknum),
+                    require_ok=False,
+                    timeout=2.0,
+                    auto_resume=False,
+                )
+            except BinmonError:
+                pass
+
+    def _run_until_pc_cond(self, target: int, condition: str, timeout: float) -> None:
+        """run_until_pc with a VICE condition: install a NON-temporary stop-on-hit
+        checkpoint at `target`, attach `condition`, resume, and halt only when the
+        condition holds (the CPU runs through every condition-false hit at full
+        speed). Non-temporary because a condition-false hit must NOT retire the
+        checkpoint; the finally block deletes it."""
+        body = struct.pack(
+            "<HHBBBB B",
+            target & 0xFFFF,
+            target & 0xFFFF,
+            1,
+            1,
+            CHECK_EXEC,
+            0,  # stop_when_hit, enabled, op, temporary=0 (condition-gated)
+            MEMSPACE_MAIN,
+        )
+        resp = self._call_inner(
+            OPCODE.CHECKPOINT_SET,
+            body,
+            require_ok=True,
+            timeout=timeout,
+            auto_resume=False,
+        )
+        cp = self._parse_checkpoint_info(resp.body)
+        expr = condition.encode("ascii") if isinstance(condition, str) else condition
+        cond_body = struct.pack("<IB", cp.checknum & 0xFFFFFFFF, len(expr)) + expr
+        self._call_inner(
+            OPCODE.CONDITION_SET,
+            cond_body,
+            require_ok=True,
+            timeout=timeout,
+            auto_resume=False,
+        )
+        try:
+            with self._lock:
+                assert self._sock is not None
+                old_to = self._sock.gettimeout()
+                self._sock.settimeout(timeout)
+                try:
+                    exit_req = self._next_req()
+                    self._send(OPCODE.EXIT, b"", exit_req)
+                    deadline = time.monotonic() + timeout
+                    exit_acked = False
+                    hit = False
+                    while time.monotonic() < deadline:
+                        resp = self._read_response()
+                        if resp.req_id == exit_req:
+                            exit_acked = True
+                            continue
+                        if resp.req_id == 0xFFFFFFFF:
+                            if resp.opcode == 0x11:  # CHECKPOINT_INFO event
+                                if len(resp.body) >= 5 and resp.body[4]:
+                                    hit = True
+                            elif resp.opcode == OPCODE.STOPPED:
+                                if hit:
+                                    return
+                    raise BinmonError(
+                        f"run_until_pc(${target:04X} if {condition!r}) timed out "
+                        f"(exit_acked={exit_acked}, hit={hit})"
+                    )
+                finally:
+                    self._sock.settimeout(old_to)
+        finally:
             try:
                 self._call_inner(
                     OPCODE.CHECKPOINT_DELETE,
