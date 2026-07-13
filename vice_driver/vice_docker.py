@@ -1,16 +1,21 @@
 """Manage the asid-vice Docker container that hosts x64sc + binmon.
 
-The image (built from /scratch/anarkiwi/asid-vice via the supplied
-Dockerfile) is `asid-vice:latest` by default. Its ENTRYPOINT is `x64sc`
-and the default CMD already enables the binary monitor on 0.0.0.0:6502
-inside the container, so we only need to publish the port and (optionally)
-mount disk images and pass `-autostart`.
+The default image is the published ``anarkiwi/asid-vice:latest`` (built
+from https://github.com/anarkiwi/asid-vice). It is the full GTK3 (X11)
+build, so its ENTRYPOINT is an ``Xvfb`` wrapper (``x11-entrypoint.sh``)
+that brings up a virtual X server and then ``exec``s its argv. The
+emulator binary must therefore be the first token of that argv, so
+:meth:`ViceContainer.start` prepends :attr:`ViceContainer.emulator`
+(``x64sc`` by default) ahead of the :meth:`ViceContainer.x64sc_args`
+flags. The wrapper needs no host X server; binmon, screen-scrape and
+DISPLAY_GET all work headlessly against the virtual framebuffer.
 
 Set ``ViceContainer.entrypoint`` when running against an image whose
-ENTRYPOINT is not ``x64sc`` (e.g. ``anarkiwi/headlessvice``, whose
-default entrypoint is ``/bin/bash``). The string is passed through
-``docker run --entrypoint``; the ``x64sc_args()`` flags then become
-the new entrypoint's argv.
+ENTRYPOINT should be overridden — e.g. ``anarkiwi/headlessvice``, whose
+default entrypoint is ``/bin/bash``, driven with ``entrypoint="x64sc"``.
+The string is passed through ``docker run --entrypoint`` and the emulator
+binary is *not* prepended: the ``x64sc_args()`` flags become that
+entrypoint's argv directly.
 
 This module deliberately uses the docker CLI rather than docker-py so the
 harness has no Python dependencies beyond stdlib.
@@ -48,9 +53,14 @@ class DiskMount:
 
 @dataclass
 class ViceContainer:
-    image: str = "asid-vice:latest"
+    image: str = "anarkiwi/asid-vice:latest"
+    # Emulator binary run inside the container. Prepended to x64sc_args()
+    # when ``entrypoint`` is None, because the published image's ENTRYPOINT
+    # is the Xvfb wrapper, which execs its argv. Override for x128 etc.
+    emulator: str = "x64sc"
     # ``docker run --entrypoint`` override. ``None`` => use the image's
-    # own ENTRYPOINT. Set to ``"x64sc"`` to drive ``anarkiwi/headlessvice``.
+    # own ENTRYPOINT (the Xvfb wrapper). Set to ``"x64sc"`` to drive an
+    # image such as ``anarkiwi/headlessvice`` whose entrypoint is a shell.
     entrypoint: Optional[str] = None
     binmon_port: int = 6502
     container_binmon_port: int = 6502
@@ -158,6 +168,11 @@ class ViceContainer:
         for m in self.mounts:
             cmd += m.docker_arg()
         cmd += [self.image]
+        # The image's own ENTRYPOINT (the Xvfb wrapper) execs its argv, so
+        # the emulator binary must lead. When entrypoint is overridden the
+        # flags are that entrypoint's argv and no binary is prepended.
+        if self.entrypoint is None:
+            cmd += [self.emulator]
         cmd += self.x64sc_args()
 
         log.info("starting container: %s", " ".join(cmd))

@@ -45,9 +45,12 @@ over a single TCP socket per connection.
 ## Requirements
 
 - Python ≥ 3.10
-- Docker, with a built `asid-vice:latest` image — see
-  [`anarkiwi/asid-vice`](https://github.com/anarkiwi/asid-vice) for the
-  Dockerfile and build instructions.
+- Docker. The default image is the published
+  [`anarkiwi/asid-vice:latest`](https://hub.docker.com/r/anarkiwi/asid-vice)
+  (pulled automatically on first run, or `docker pull anarkiwi/asid-vice:latest`).
+  It is the full GTK3 (X11) build; its entrypoint auto-starts `Xvfb`, so binmon
+  driving works with no host X server. Point `ViceContainer(image=...)` at a
+  locally built image to override.
 - A C64 `.d64` (or PRG / TAP) image to autostart.
 
 ## Installation
