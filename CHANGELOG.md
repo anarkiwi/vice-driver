@@ -6,6 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses semantic-versioning-ish tags but the v0.x line is
 still pre-stable.
 
+## [0.4.0] — published X11 image
+
+### Changed
+
+- `ViceContainer.image` now defaults to the published
+  `anarkiwi/asid-vice:latest` (was the locally built `asid-vice:latest`).
+  That image is the full GTK3 (X11) build whose ENTRYPOINT is an `Xvfb`
+  wrapper (`exec "$@"`), so `start()` now prepends the emulator binary to
+  the flags; binmon driving still needs no host X server. New
+  `ViceContainer.emulator` field (default `x64sc`) selects the binary —
+  set it to `x128`, `xvic`, etc. An explicit `entrypoint=` override still
+  suppresses the prepend for shell-entrypoint images.
+
 ## [0.3.2] — video recording
 
 ### Added

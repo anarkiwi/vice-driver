@@ -187,6 +187,42 @@ def test_start_omits_entrypoint_when_none(mock_docker: dict[str, list]) -> None:
     assert "--entrypoint" not in run_cmd
 
 
+def test_default_image_is_published_dockerhub_image() -> None:
+    assert ViceContainer().image == "anarkiwi/asid-vice:latest"
+
+
+def test_start_prepends_emulator_binary_when_no_entrypoint(
+    mock_docker: dict[str, list],
+) -> None:
+    # The published image's ENTRYPOINT is the Xvfb wrapper (execs its argv),
+    # so the emulator binary must directly follow the image name and precede
+    # the flags.
+    ViceContainer(image="anarkiwi/asid-vice:latest").start()
+    [run_cmd] = mock_docker["calls"]
+    image_idx = run_cmd.index("anarkiwi/asid-vice:latest")
+    assert run_cmd[image_idx + 1] == "x64sc"
+    assert run_cmd.index("x64sc") < run_cmd.index("-binarymonitor")
+
+
+def test_start_emulator_override_is_prepended(mock_docker: dict[str, list]) -> None:
+    ViceContainer(emulator="x128").start()
+    [run_cmd] = mock_docker["calls"]
+    assert "x128" in run_cmd
+    assert run_cmd.index("x128") < run_cmd.index("-binarymonitor")
+    assert "x64sc" not in run_cmd
+
+
+def test_start_entrypoint_override_does_not_prepend_emulator(
+    mock_docker: dict[str, list],
+) -> None:
+    # With an explicit entrypoint the flags are that entrypoint's argv, so
+    # the image is followed directly by the first x64sc_args flag.
+    ViceContainer(image="anarkiwi/headlessvice:latest", entrypoint="x64sc").start()
+    [run_cmd] = mock_docker["calls"]
+    image_idx = run_cmd.index("anarkiwi/headlessvice:latest")
+    assert run_cmd[image_idx + 1] == "-default"
+
+
 def test_start_passes_disk_mounts(mock_docker: dict[str, list]) -> None:
     c = ViceContainer(
         mounts=[DiskMount("/host/x.d64", "/work/x.d64", read_only=True)],
