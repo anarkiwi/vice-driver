@@ -6,6 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses semantic-versioning-ish tags but the v0.x line is
 still pre-stable.
 
+## [0.4.1] — checkpoint-scoped run_until_pc wait
+
+### Fixed
+
+- `run_until_pc` accepted a hit event from ANY checkpoint, so a stale event from a
+  previous call satisfied the current wait and returned with the CPU still running;
+  the next command then halted it at a host-timing-dependent point. The wait now
+  matches its own checknum. Note asid-vice's checkpoint stop is itself asynchronous
+  (the CPU halts at a varying PC after a hit), so exact stop position still cannot be
+  guaranteed client-side.
+
 ## [0.4.0] — published X11 image
 
 ### Changed

@@ -617,7 +617,14 @@ class BinMon:
                             continue
                         if resp.req_id == 0xFFFFFFFF:
                             if resp.opcode == 0x11:  # CHECKPOINT_INFO event
-                                if len(resp.body) >= 5 and resp.body[4]:
+                                # Match OUR checknum: a stale event from a previous
+                                # run_until_pc would otherwise satisfy this wait and
+                                # return with the CPU still running.
+                                if (
+                                    len(resp.body) >= 5
+                                    and resp.body[4]
+                                    and struct.unpack("<I", resp.body[:4])[0] == cp.checknum
+                                ):
                                     hit = True
                             elif resp.opcode == OPCODE.STOPPED:
                                 # Server emits STOPPED whenever the CPU
@@ -700,7 +707,14 @@ class BinMon:
                             continue
                         if resp.req_id == 0xFFFFFFFF:
                             if resp.opcode == 0x11:  # CHECKPOINT_INFO event
-                                if len(resp.body) >= 5 and resp.body[4]:
+                                # Match OUR checknum: a stale event from a previous
+                                # run_until_pc would otherwise satisfy this wait and
+                                # return with the CPU still running.
+                                if (
+                                    len(resp.body) >= 5
+                                    and resp.body[4]
+                                    and struct.unpack("<I", resp.body[:4])[0] == cp.checknum
+                                ):
                                     hit = True
                             elif resp.opcode == OPCODE.STOPPED:
                                 if hit:
