@@ -525,6 +525,78 @@ class BinMon:
         body = struct.pack("<IB", checknum & 0xFFFFFFFF, len(expr)) + expr
         self.call(OPCODE.CONDITION_SET, body)
 
+    def _checkpoint_for(self, target: int, timeout: float) -> "Checkpoint":
+        """A cached, initially-disabled stop_when_hit checkpoint at ``target``."""
+        cache = getattr(self, "_cp_cache", None)
+        if cache is None:
+            cache = self._cp_cache = {}
+        cp = cache.get(target)
+        if cp is None:
+            body = struct.pack(
+                "<HHBBBB B",
+                target & 0xFFFF,
+                target & 0xFFFF,
+                1,
+                0,
+                CHECK_EXEC,
+                0,  # stop_when_hit, enabled=0, op, temporary=0
+                MEMSPACE_MAIN,
+            )
+            resp = self._call_inner(
+                OPCODE.CHECKPOINT_SET,
+                body,
+                require_ok=True,
+                timeout=timeout,
+                auto_resume=False,
+            )
+            cp = cache[target] = self._parse_checkpoint_info(resp.body)
+        return cp
+
+    def _toggle_checkpoint(self, checknum: int, enabled: bool, timeout: float) -> None:
+        self._call_inner(
+            OPCODE.CHECKPOINT_TOGGLE,
+            struct.pack("<IB", checknum, 1 if enabled else 0),
+            require_ok=False,
+            timeout=timeout,
+            auto_resume=False,
+        )
+
+    def wait_for_checkpoint(self, checknum: int, timeout: float = 5.0) -> None:
+        """Resume the CPU and wait for an ALREADY-INSTALLED stop_when_hit checkpoint.
+
+        Unlike run_until_pc this installs nothing: CHECKPOINT_SET delivered to a
+        RUNNING machine is only serviced at the next vsync poll
+        (monitor_check_binary, once per emulated frame), so a per-call install lands
+        on a host-timed frame boundary and can miss the frame it was meant to catch.
+        Reusing one checkpoint removes that lottery.
+        """
+        with self._lock:
+            assert self._sock is not None
+            old_to = self._sock.gettimeout()
+            self._sock.settimeout(timeout)
+            try:
+                exit_req = self._next_req()
+                self._send(OPCODE.EXIT, b"", exit_req)
+                deadline = time.monotonic() + timeout
+                hit = False
+                while time.monotonic() < deadline:
+                    resp = self._read_response()
+                    if resp.req_id == exit_req:
+                        continue
+                    if resp.req_id == 0xFFFFFFFF:
+                        if resp.opcode == 0x11:
+                            if (
+                                len(resp.body) >= 5
+                                and resp.body[4]
+                                and struct.unpack("<I", resp.body[:4])[0] == checknum
+                            ):
+                                hit = True
+                        elif resp.opcode == OPCODE.STOPPED and hit:
+                            return
+                raise BinmonError(f"wait_for_checkpoint(#{checknum}) timed out (hit={hit})")
+            finally:
+                self._sock.settimeout(old_to)
+
     def run_until_pc(self, target: int, timeout: float = 5.0, condition: str | None = None) -> None:
         """Resume CPU until execution reaches `target`. Implementation: set a
         stop-on-hit checkpoint at target, EXIT, wait for the unsolicited
@@ -576,27 +648,12 @@ class BinMon:
         except BinmonError:
             pass
 
-        # Install the checkpoint without resuming CPU — otherwise the
-        # auto_resume EXIT can race the manual EXIT below and the CPU may
-        # be already past target before we start watching for events.
-        body = struct.pack(
-            "<HHBBBB B",
-            target & 0xFFFF,
-            target & 0xFFFF,
-            1,
-            1,
-            CHECK_EXEC,
-            1,  # stop_when_hit, enabled, op, temporary
-            MEMSPACE_MAIN,
-        )
-        resp = self._call_inner(
-            OPCODE.CHECKPOINT_SET,
-            body,
-            require_ok=True,
-            timeout=timeout,
-            auto_resume=False,
-        )
-        cp = self._parse_checkpoint_info(resp.body)
+        # Reuse one checkpoint per target, toggled while the CPU is HALTED.
+        # CHECKPOINT_SET delivered to a RUNNING machine is only serviced at the next
+        # vsync poll (monitor_check_binary), so a per-call install lands on a
+        # host-timed frame boundary and can miss the frame it was meant to catch.
+        cp = self._checkpoint_for(target, timeout)
+        self._toggle_checkpoint(cp.checknum, True, timeout)
         try:
             # Resume CPU. We send EXIT manually and wait for the unsolicited
             # STOPPED event to indicate the checkpoint fired.
@@ -640,19 +697,10 @@ class BinMon:
                 finally:
                     self._sock.settimeout(old_to)
         finally:
-            # Make sure we don't leave the temp checkpoint behind on error
-            # paths. CHECKPOINT_DELETE is harmless if VICE already auto-
-            # removed it (temporary=True), but safer to be explicit.
-            # Use call_keep_halted so we don't unintentionally resume the
-            # CPU after a successful halt at target.
+            # Disable rather than delete: the checkpoint is cached for reuse, and a
+            # live stop-on-hit would otherwise pre-empt every later wait.
             try:
-                self._call_inner(
-                    OPCODE.CHECKPOINT_DELETE,
-                    struct.pack("<I", cp.checknum),
-                    require_ok=False,
-                    timeout=2.0,
-                    auto_resume=False,
-                )
+                self._toggle_checkpoint(cp.checknum, False, 2.0)
             except BinmonError:
                 pass
 
