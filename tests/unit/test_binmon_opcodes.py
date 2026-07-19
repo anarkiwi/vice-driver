@@ -598,6 +598,99 @@ def test_run_until_pc_installs_checkpoint_and_waits_for_hit() -> None:
     bm.run_until_pc(target, timeout=1.0)
 
 
+def test_run_until_pc_ignores_a_foreign_checkpoint_hit() -> None:
+    """Only OUR checkpoint may end the wait. A hit from another checkpoint (a stale
+    event from a previous call) must not return, which would leave the CPU running and
+    make the emulated stop point depend on host timing."""
+    bm, s = _make_bm()
+    target = 0xABCD
+    body = struct.pack("<H", 1) + struct.pack("<BBH", 3, REG_PC, 0x0000)
+    s.recv_queue.extend(_resp_bytes(req_id=1, opcode=OPCODE.REGISTERS_GET, body=body))
+    cp_body = struct.pack(
+        "<I B HH BBBB II BB",
+        99,
+        0,
+        target,
+        target,
+        1,
+        1,
+        CHECK_EXEC,
+        1,
+        0,
+        0,
+        0,
+        MEMSPACE_MAIN,
+    )
+    s.recv_queue.extend(_resp_bytes(req_id=2, opcode=OPCODE.CHECKPOINT_SET, body=cp_body))
+    s.recv_queue.extend(_resp_bytes(req_id=3, opcode=OPCODE.EXIT))
+    foreign = struct.pack(
+        "<I B HH BBBB II BB",
+        42,
+        1,
+        target,
+        target,
+        1,
+        1,
+        CHECK_EXEC,
+        1,
+        1,
+        0,
+        0,
+        MEMSPACE_MAIN,
+    )
+    s.recv_queue.extend(_resp_bytes(req_id=0xFFFFFFFF, opcode=0x11, body=foreign))
+    s.recv_queue.extend(_resp_bytes(req_id=0xFFFFFFFF, opcode=OPCODE.STOPPED))
+    s.recv_queue.extend(_resp_bytes(req_id=4, opcode=OPCODE.CHECKPOINT_DELETE))
+    with pytest.raises((BinmonError, socket.timeout)):
+        bm.run_until_pc(target, timeout=0.2)
+
+
+def test_run_until_pc_ignores_a_foreign_checkpoint_hit() -> None:
+    """Only OUR checkpoint may end the wait: a stale hit event from a previous
+    run_until_pc must not satisfy it, which would return with the CPU still running."""
+    bm, s = _make_bm()
+    target = 0xABCD
+    body = struct.pack("<H", 1) + struct.pack("<BBH", 3, REG_PC, 0x0000)
+    s.recv_queue.extend(_resp_bytes(req_id=1, opcode=OPCODE.REGISTERS_GET, body=body))
+    cp_body = struct.pack(
+        "<I B HH BBBB II BB",
+        99,
+        0,
+        target,
+        target,
+        1,
+        1,
+        CHECK_EXEC,
+        1,
+        0,
+        0,
+        0,
+        MEMSPACE_MAIN,
+    )
+    s.recv_queue.extend(_resp_bytes(req_id=2, opcode=OPCODE.CHECKPOINT_SET, body=cp_body))
+    s.recv_queue.extend(_resp_bytes(req_id=3, opcode=OPCODE.EXIT))
+    foreign = struct.pack(
+        "<I B HH BBBB II BB",
+        42,
+        1,
+        target,
+        target,
+        1,
+        1,
+        CHECK_EXEC,
+        1,
+        1,
+        0,
+        0,
+        MEMSPACE_MAIN,
+    )
+    s.recv_queue.extend(_resp_bytes(req_id=0xFFFFFFFF, opcode=0x11, body=foreign))
+    s.recv_queue.extend(_resp_bytes(req_id=0xFFFFFFFF, opcode=OPCODE.STOPPED))
+    s.recv_queue.extend(_resp_bytes(req_id=4, opcode=OPCODE.CHECKPOINT_DELETE))
+    with pytest.raises((BinmonError, socket.timeout)):
+        bm.run_until_pc(target, timeout=0.2)
+
+
 def test_run_until_pc_fast_path_only_reads_registers() -> None:
     bm, s = _make_bm()
     target = 0x1234
