@@ -13,9 +13,11 @@ still pre-stable.
 - `run_until_pc` accepted a hit event from ANY checkpoint, so a stale event from a
   previous call satisfied the current wait and returned with the CPU still running;
   the next command then halted it at a host-timing-dependent point. The wait now
-  matches its own checknum. Note asid-vice's checkpoint stop is itself asynchronous
-  (the CPU halts at a varying PC after a hit), so exact stop position still cannot be
-  guaranteed client-side.
+  matches its own checknum. This narrows but does not close reproducible stepping:
+  `run_until_pc` still occasionally advances two frames instead of one. After a hit the
+  CPU halts at a PC other than the checkpoint address; that stop point is reproducible
+  for a given machine state, so it is not a host-timing race, and the residual is
+  unexplained (not a wall-clock timeout, and present with warp off).
 
 ## [0.4.0] — published X11 image
 
