@@ -6,6 +6,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses semantic-versioning-ish tags but the v0.x line is
 still pre-stable.
 
+## [0.5.0] — halted checkpoint installs
+
+### Fixed
+
+- `run_until_pc` installed a fresh temporary checkpoint per call. `CHECKPOINT_SET`
+  delivered to a RUNNING machine is only serviced at the next vsync poll
+  (`monitor_check_binary`, once per emulated frame), so the install landed on a
+  host-timed frame boundary and could miss the frame it was meant to catch —
+  measured in an instrumented emulator as 37 misses per 1655 stops, each costing one
+  emulated frame. Checkpoints are now cached per target and toggled while the CPU is
+  halted, making the arm synchronous.
+
+### Added
+
+- `wait_for_checkpoint(checknum, timeout)` — resume and wait on an already-installed
+  checkpoint, for callers stepping the same address repeatedly.
+
 ## [0.4.1] — checkpoint-scoped run_until_pc wait
 
 ### Fixed

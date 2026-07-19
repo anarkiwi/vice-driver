@@ -584,8 +584,10 @@ def test_run_until_pc_installs_checkpoint_and_waits_for_hit() -> None:
         "<I B HH BBBB II BB", 99, 0, target, target, 1, 1, CHECK_EXEC, 1, 0, 0, 0, MEMSPACE_MAIN
     )
     s.recv_queue.extend(_resp_bytes(req_id=2, opcode=OPCODE.CHECKPOINT_SET, body=cp_body))
+    # TOGGLE(enable) ack: the checkpoint is cached and armed while the CPU is halted.
+    s.recv_queue.extend(_resp_bytes(req_id=3, opcode=OPCODE.CHECKPOINT_TOGGLE))
     # EXIT ack.
-    s.recv_queue.extend(_resp_bytes(req_id=3, opcode=OPCODE.EXIT))
+    s.recv_queue.extend(_resp_bytes(req_id=4, opcode=OPCODE.EXIT))
     # CHECKPOINT_INFO event (req_id=0xFFFFFFFF) with hit=True (byte 4 of body).
     info_body = struct.pack(
         "<I B HH BBBB II BB", 99, 1, target, target, 1, 1, CHECK_EXEC, 1, 1, 0, 0, MEMSPACE_MAIN
@@ -594,7 +596,7 @@ def test_run_until_pc_installs_checkpoint_and_waits_for_hit() -> None:
     # STOPPED event.
     s.recv_queue.extend(_resp_bytes(req_id=0xFFFFFFFF, opcode=OPCODE.STOPPED))
     # CHECKPOINT_DELETE ack.
-    s.recv_queue.extend(_resp_bytes(req_id=4, opcode=OPCODE.CHECKPOINT_DELETE))
+    s.recv_queue.extend(_resp_bytes(req_id=5, opcode=OPCODE.CHECKPOINT_TOGGLE))
     bm.run_until_pc(target, timeout=1.0)
 
 
