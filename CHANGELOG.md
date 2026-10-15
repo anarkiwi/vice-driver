@@ -6,6 +6,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses semantic-versioning-ish tags but the v0.x line is
 still pre-stable.
 
+## [0.6.0] — named banks + full 64K memory reads
+
+### Fixed
+
+- `mem_get(start, end)` across the full 64K (e.g. `mem_get(0, 0xFFFF)`)
+  silently returned `b""` because the protocol's response length field is a
+  u16 that wraps to 0 for a 65536-byte body (the body itself is sent in
+  full). The byte count is now taken from the request (`end - start + 1`)
+  rather than that field, and a body whose size doesn't match is now an
+  explicit error instead of a silent short read. A request with `start`
+  greater than `end` is now rejected on the client side.
+
+### Added
+
+- `BinMon.banks_available() -> dict[str, int]` — opcode 0x82, which was
+  previously exposed but had no wrapper. Returns the named memory banks for
+  the C64, e.g. `{"default": 0, "cpu": 0, "ram": 1, "rom": 2, "io": 3,
+  "cart": 4}`.
+- `mem_get` and `mem_set` now accept `bank=` as either a bank number or a
+  bank name (e.g. `bank="ram"`). Names are resolved via
+  `banks_available()` and cached per connection, so dumping an unpacked
+  image no longer requires hard-coding the bank number (previously bank 1
+  for RAM under ROM/IO on x64sc).
+
 ## [0.5.0] — halted checkpoint installs
 
 ### Fixed

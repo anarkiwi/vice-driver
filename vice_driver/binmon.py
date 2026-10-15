@@ -230,6 +230,7 @@ class BinMon:
         self._sock: Optional[socket.socket] = None
         self._req_id = 0
         self._lock = threading.Lock()
+        self._bank_map: Optional[dict[str, int]] = None
 
     # ---- lifecycle -----------------------------------------------------
 
@@ -445,14 +446,26 @@ class BinMon:
         end: int,
         side_effects: bool = False,
         memspace: int = 0,
-        bank: int = 0,
+        bank: int | str = 0,
     ) -> bytes:
-        body = struct.pack("<BHHBH", int(side_effects), start, end, memspace, bank)
+        """Read [start, end] (inclusive) and return the raw bytes.
+
+        bank is a bank number or a name (e.g. "ram") resolved via
+        banks_available(). Length is taken from the request, since the
+        response's u16 length field wraps at 65536.
+        """
+        if start > end:
+            raise BinmonError(f"mem_get: start ({start:#x}) > end ({end:#x})")
+        banknum = self._resolve_bank(bank)
+        expected = end - start + 1
+        body = struct.pack("<BHHBH", int(side_effects), start, end, memspace, banknum)
         resp = self.call(OPCODE.MEM_GET, body)
         if len(resp.body) < 2:
             raise BinmonError("mem_get short response")
-        n = struct.unpack("<H", resp.body[:2])[0]
-        return resp.body[2 : 2 + n]
+        data = resp.body[2:]
+        if len(data) != expected:
+            raise BinmonError(f"mem_get: expected {expected} bytes, server sent {len(data)}")
+        return data
 
     def mem_set(
         self,
@@ -460,14 +473,61 @@ class BinMon:
         data: bytes,
         side_effects: bool = False,
         memspace: int = 0,
-        bank: int = 0,
+        bank: int | str = 0,
     ) -> None:
-        """Write data into memory at [start, start+len(data))."""
+        """Write data into memory at [start, start+len(data)).
+
+        bank is a bank number or a name (e.g. "ram") resolved via
+        banks_available()."""
         if not data:
             return
+        banknum = self._resolve_bank(bank)
         end = start + len(data) - 1
-        body = struct.pack("<BHHBH", int(side_effects), start, end, memspace, bank) + bytes(data)
+        body = struct.pack("<BHHBH", int(side_effects), start, end, memspace, banknum) + bytes(data)
         self.call(OPCODE.MEM_SET, body)
+
+    def banks_available(self) -> dict[str, int]:
+        """Return the C64 named banks as {name: banknum} (opcode 0x82).
+
+        e.g. {"default": 0, "cpu": 0, "ram": 1, "rom": 2, "io": 3, "cart": 4}.
+        Values may be used directly, or the names as bank= in mem_get/mem_set.
+        """
+        resp = self.call(OPCODE.BANKS_AVAILABLE)
+        return self._parse_banks_available(resp.body)
+
+    @staticmethod
+    def _parse_banks_available(body: bytes) -> dict[str, int]:
+        """Decode a BANKS_AVAILABLE body: u16 count then, per bank, u8 size,
+        u16 number, u8 name length, and the name."""
+        if len(body) < 2:
+            raise BinmonError("banks_available short response")
+        n = struct.unpack_from("<H", body, 0)[0]
+        out: dict[str, int] = {}
+        p = 2
+        for _ in range(n):
+            if p + 1 > len(body):
+                raise BinmonError("banks_available short response")
+            item_size = body[p]
+            if p + 1 + item_size > len(body):
+                raise BinmonError("banks_available short response")
+            banknum = struct.unpack_from("<H", body, p + 1)[0]
+            name_len = body[p + 3]
+            name = body[p + 4 : p + 4 + name_len].decode("latin-1")
+            out[name] = banknum
+            p += 1 + item_size
+        return out
+
+    def _resolve_bank(self, bank: int | str) -> int:
+        """Return bank as a number; if it is a name, look it up via
+        banks_available() (cached on the instance)."""
+        if isinstance(bank, int):
+            return bank
+        if self._bank_map is None:
+            self._bank_map = self.banks_available()
+        if bank not in self._bank_map:
+            available = ", ".join(sorted(self._bank_map))
+            raise BinmonError(f"unknown bank {bank!r}; available: {available}")
+        return self._bank_map[bank]
 
     # ---- CPU registers (REGISTERS_GET 0x31 / REGISTERS_SET 0x32) ------
     #

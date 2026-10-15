@@ -239,6 +239,123 @@ def test_mem_set_packs_data_payload() -> None:
     assert req_body[header_len:] == b"\xaa\xbb\xcc"
 
 
+# ---- mem_get 64K length wrap (issue #10) -----------------------------------
+
+
+def test_mem_get_full_64k_read_is_not_truncated() -> None:
+    """A full 64K read returns all 65536 bytes even though the response
+    u16 length field wraps to 0 (the old code returned b"")."""
+    bm, s = _make_bm()
+    payload = bytes((i & 0xFF) for i in range(0x10000))
+    body = struct.pack("<H", 0) + payload
+    s.recv_queue.extend(_resp_bytes(req_id=1, opcode=OPCODE.MEM_GET, body=body))
+    out = bm.mem_get(0x0000, 0xFFFF)
+    assert len(out) == 0x10000
+    assert out == payload
+
+
+def test_mem_get_rejects_wrong_byte_count() -> None:
+    bm, s = _make_bm()
+    # Requested 5 bytes (0x1000..0x1004); server sends only 3.
+    body = struct.pack("<H", 2) + b"\x01\x02\x03"
+    s.recv_queue.extend(_resp_bytes(req_id=1, opcode=OPCODE.MEM_GET, body=body))
+    with pytest.raises(BinmonError, match="expected 5 bytes, server sent 3"):
+        bm.mem_get(0x1000, 0x1004)
+
+
+def test_mem_get_rejects_start_after_end() -> None:
+    bm, _ = _make_bm()
+    with pytest.raises(BinmonError, match="start"):
+        bm.mem_get(0x2000, 0x1000)
+
+
+# ---- banks_available / bank-name resolution (issue #10) --------------------
+
+
+def _banks_body(items: list[tuple[str, int]]) -> bytes:
+    """Encode a BANKS_AVAILABLE body: u16 count, then per bank u8 size
+    (=len(name)+3), u16 number, u8 name_len, name."""
+    body = struct.pack("<H", len(items))
+    for name, num in items:
+        name_b = name.encode("latin-1")
+        body += bytes([len(name_b) + 3])
+        body += struct.pack("<H", num)
+        body += bytes([len(name_b)])
+        body += name_b
+    return body
+
+
+def test_banks_available_parses_named_banks() -> None:
+    bm, s = _make_bm()
+    body = _banks_body([("default", 0), ("cpu", 0), ("ram", 1), ("io", 3), ("cart", 4)])
+    s.recv_queue.extend(_resp_bytes(req_id=1, opcode=OPCODE.BANKS_AVAILABLE, body=body))
+    out = bm.banks_available()
+    assert out == {"default": 0, "cpu": 0, "ram": 1, "io": 3, "cart": 4}
+    # The request is a bare opcode with no body.
+    assert bytes(s.sent[11:]) == b""
+
+
+def test_parse_banks_available_rejects_short_body() -> None:
+    with pytest.raises(BinmonError, match="short response"):
+        BinMon._parse_banks_available(b"\x00")
+    # count present but no items follow.
+    with pytest.raises(BinmonError, match="short response"):
+        BinMon._parse_banks_available(struct.pack("<H", 1))
+
+
+def test_mem_get_resolves_bank_name_to_number() -> None:
+    bm, s = _make_bm()
+    bm._bank_map = {"ram": 1, "rom": 2}
+    body = struct.pack("<H", 2) + b"\xaa\xbb"
+    s.recv_queue.extend(_resp_bytes(req_id=1, opcode=OPCODE.MEM_GET, body=body))
+    expected = bytes.fromhex("aabb")
+    assert bm.mem_get(0x2000, 0x2001, bank="ram") == expected
+    _, start, end, memspace, bank = struct.unpack("<BHHBH", bytes(s.sent[11:]))
+    assert (start, end, memspace, bank) == (0x2000, 0x2001, 0, 1)
+
+
+def test_mem_set_resolves_bank_name_to_number() -> None:
+    bm, s = _make_bm()
+    bm._bank_map = {"ram": 1}
+    s.recv_queue.extend(_resp_bytes(req_id=1, opcode=OPCODE.MEM_SET))
+    bm.mem_set(0x1000, b"\xaa\xbb", bank="ram")
+    header_len = struct.calcsize("<BHHBH")
+    _, start, end, _memspace, bank = struct.unpack("<BHHBH", bytes(s.sent[11:])[:header_len])
+    assert (start, end, bank) == (0x1000, 0x1001, 1)
+    assert bytes(s.sent[11 + header_len :]) == b"\xaa\xbb"
+
+
+def test_mem_get_rejects_unknown_bank_name() -> None:
+    bm, _ = _make_bm()
+    bm._bank_map = {"ram": 1}
+    with pytest.raises(BinmonError, match="unknown bank 'nosuch'"):
+        bm.mem_get(0x0, 0x0, bank="nosuch")
+
+
+def test_mem_get_issues_banks_available_when_name_unprimed() -> None:
+    """A bank name on a fresh client first issues BANKS_AVAILABLE to resolve
+    it, then MEM_GET with the resolved number; the map is then cached."""
+    bm, s = _make_bm()
+    s.recv_queue.extend(
+        _resp_bytes(req_id=1, opcode=OPCODE.BANKS_AVAILABLE, body=_banks_body([("ram", 1)]))
+    )
+    s.recv_queue.extend(
+        _resp_bytes(req_id=2, opcode=OPCODE.MEM_GET, body=struct.pack("<H", 1) + b"\x01")
+    )
+    assert bm.mem_get(0x0, 0x0, bank="ram") == b"\x01"
+    assert _parse_header(bytes(s.sent))[4] == OPCODE.BANKS_AVAILABLE
+    second = bytes(s.sent[11:])  # req 1 was a bare 11-byte header
+    assert _parse_header(second)[4] == OPCODE.MEM_GET
+    _, start, end, memspace, bank = struct.unpack("<BHHBH", second[11:])
+    assert (start, end, memspace, bank) == (0, 0, 0, 1)
+    # Cached map: a second name-based call sends no further BANKS_AVAILABLE.
+    s.recv_queue.extend(
+        _resp_bytes(req_id=3, opcode=OPCODE.MEM_GET, body=struct.pack("<H", 1) + b"\x02")
+    )
+    assert bm.mem_get(0x0, 0x0, bank="ram") == b"\x02"
+    assert len(s.sent) == 11 + (11 + 8) + (11 + 8)
+
+
 # ---- registers_get / registers_set -----------------------------------------
 
 
