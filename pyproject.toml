@@ -8,7 +8,7 @@ version = "0.6.0"
 description = "Python automation framework for driving asid-vice (a binmon-extended C64 emulator) — protocol client, key matrix + chord typing, screen scrape, container management, code-coverage harness."
 readme = "README.md"
 license = { text = "Apache-2.0" }
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 authors = [
     { name = "anarkiwi" },
 ]
@@ -29,7 +29,6 @@ classifiers = [
     "Operating System :: POSIX :: Linux",
     "Operating System :: MacOS",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Testing",
     "Topic :: System :: Emulators",
@@ -90,7 +89,7 @@ show_missing = true
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "B"]
@@ -102,4 +101,4 @@ ignore = [
 
 [tool.black]
 line-length = 100
-target-version = ["py311"]
+target-version = ["py312"]
